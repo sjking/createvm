@@ -5,7 +5,7 @@
 # Tested and works on Oracle VM VirtualBox Manager 4.1.12_Ubuntu
 
 BASE_FOLDER="/media/vbox" # directory to hold VMs
-HDD_SIZE=10000 # 10 GiB, change this to suit your needs (size in MiB)
+HDD_SIZE=40000 # change this to suit your needs (size in MiB)
 working_dir=`pwd`
 
 # find the total memory of the machine
@@ -36,8 +36,27 @@ VBoxManage createvm --name $machine_name --register --basefolder $BASE_FOLDER
 machine_folder="$BASE_FOLDER/$machine_name"
 cd $machine_folder 
 
-VBoxManage modifyvm $machine_name --memory $memory_size --acpi on --boot1 dvd \
-    --nic1 bridged --bridgeadapter1 eth0
+vagrant=""
+
+# prompt to use as a base box for vagrant (NAT), OR NOt (bridged nic)
+# vagrant has to setup port forwarding for NAT to ssh from the host
+while true; do
+    read -p "Do you wish to use this VM as a base box for vagrant? [Y/n] " yn
+    case $yn in
+        [Yy]* ) 
+            VBoxManage modifyvm $machine_name --memory $memory_size --acpi on --nic1 nat --natpf1 ssh,tcp,,2222,,22
+            vagrant="true"
+            break
+            ;;
+        [Nn]* ) 
+            VBoxManage modifyvm $machine_name --memory $memory_size --acpi on --nic1 bridged --bridgeadapter1 eth0 --boot1 dvd
+            break
+            ;;
+            * ) 
+            echo "Please answer yes or no."
+            ;;
+    esac
+done
 
 # register the sata controller
 VBoxManage storagectl $machine_name --add sata --name "Sata Controller"
@@ -63,29 +82,41 @@ fi
 
 VBoxManage storageattach $machine_name --storagectl "Sata Controller" --port 0 --device 0 --type hdd --medium $hdd_name
 
-# keep a file of port numbers in the base directory, and increment them for new
-# vms
-last_port=`cat "$BASE_FOLDER/vrdeport" | tail -1 | awk '{print $2}'`
-if [ -z "$last_port" ]; then
-    # prompt for a starting port, and create the file
-    last_port="3000" # default
-    read -p "Enter an uncommon port number for the VM [default 3001]: " input_port
-    if [ -n "$input_port" ]; then
-        last_port="$input_port"
+if [ -z "$vagrant" ]; then
+    # keep a file of port numbers in the base directory, and increment them for new
+    # vms
+    last_port=`cat "$BASE_FOLDER/vrdeport" | tail -1 | awk '{print $2}'`
+    if [ -z "$last_port" ]; then
+        # prompt for a starting port, and create the file
+        last_port="3000" # default
+        read -p "Enter an uncommon port number for the VM [default 3001]: " input_port
+        if [ -n "$input_port" ]; then
+            last_port="$input_port"
+        fi
+        touch "$BASE_FOLDER/vrdeport"
     fi
-    touch "$BASE_FOLDER/vrdeport"
+
+    # increment last port and add it to the port file
+    next_port=$(( $last_port + 1 ))
+    echo "$machine_name $next_port" >> "$BASE_FOLDER/vrdeport"
+
+    # assign that port number to this machine
+    VBoxManage modifyvm $machine_name --vrdeport $next_port
+    echo "VM \"$machine_name\" is assigned to port $next_port"
+    # and set the vrde on
+    VBoxManage controlvm $machine_name vrde on
 fi
 
-# increment last port and add it to the port file
-next_port=$(( $last_port + 1 ))
-echo "$machine_name $next_port" >> "$BASE_FOLDER/vrdeport"
-
-# assign that port number to this machine
-VBoxManage modifyvm $machine_name --vrdeport $next_port
-echo "VM \"$machine_name\" is assigned to port $next_port"
-# and set the vrde on
-VBoxManage controlvm $machine_name vrde on
+start=""
 
 read -p "Do you want to start the new VM $machine_name? [Y/n]" yn
-[ "$yn" = "y" ] || [ "$yn" = "Y" ] && VBoxManage startvm $machine_name -type headless && 
-    VBoxManage controlvm $machine_name vrde on
+[ "$yn" = "y" ] || [ "$yn" = "Y" ] && start="true"
+
+if [ -n "$start" ]; then
+    if [ -n "$vagrant" ]; then
+        VBoxManage startvm $machine_name
+    else
+        VBoxManage $startvm $machine_name -type headless && VBoxManage \
+            controlvm $machine_name vrde on
+    fi
+fi
