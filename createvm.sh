@@ -77,7 +77,7 @@ else
     [ -n "`echo $drive_path | egrep '^/.*$'`" ] || drive_path="$working_dir/$drive_path"
     echo "Using existing vdi drive from $drive_path..."
     # no need to attach and install iso for a cloned drive
-    VBoxManage clonehd $drive_path $hdd_name
+    VBoxManage clonehd "$drive_path" $hdd_name
 fi
 
 VBoxManage storageattach $machine_name --storagectl "Sata Controller" --port 0 --device 0 --type hdd --medium $hdd_name
